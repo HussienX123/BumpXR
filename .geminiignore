@@ -1,0 +1,23 @@
+# Build / cache / editor outputs
+Library/
+Temp/
+Logs/
+obj/
+Build/
+Builds/
+UserSettings/
+.utmp/
+
+# Meta SDK & Unity template folders under Assets
+Assets/Oculus/
+Assets/Oculus.meta
+Assets/Resources/
+Assets/Resources.meta
+Assets/CompositionLayers/
+Assets/CompositionLayers.meta
+Assets/TutorialInfo/
+Assets/TutorialInfo.meta
+
+# Graphify heavy / cached files
+graphify-out/cache/
+graphify-out/graph.html
