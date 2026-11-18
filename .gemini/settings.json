@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "BeforeTool": [
+      {
+        "matcher": "read_file|list_directory",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "graphify hook-guard gemini"
+          }
+        ]
+      }
+    ]
+  },
+  "mcpServers": {
+    "serena": {
+      "command": "serena",
+      "args": [
+        "start-mcp-server",
+        "--context=agent",
+        "--project-from-cwd",
+        "--agent-interface=tools",
+        "--enable-web-dashboard=False",
+        "--open-web-dashboard=False",
+        "--log-level=ERROR"
+      ]
+    }
+  }
+}

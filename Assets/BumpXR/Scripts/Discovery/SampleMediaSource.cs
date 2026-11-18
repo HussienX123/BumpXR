@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using BumpXR.Core;
 using UnityEngine;
 
@@ -22,14 +23,16 @@ namespace BumpXR.Discovery
                 string name = asset.name; // e.g. "sunset.jpg"
                 string mime = name.EndsWith(".png") ? "image/png" : name.EndsWith(".jpg") ? "image/jpeg" : null;
                 if (mime == null) continue;
-                _items.Add(new MediaItem { Id = name, FileName = name, MimeType = mime });
-                _bytes[name] = asset.bytes;
+                byte[] data = asset.bytes;
+                _items.Add(new MediaItem { Id = "sample:" + name, FileName = name, MimeType = mime, Size = data.Length });
+                _bytes["sample:" + name] = data;
             }
 
             _items.Sort((a, b) => string.CompareOrdinal(a.FileName, b.FileName));
         }
 
         public byte[] ReadBytes(MediaItem item) => _bytes[item.Id];
+
+        public Task<byte[]> ReadThumbnailBytesAsync(MediaItem item) => Task.FromResult(_bytes[item.Id]);
     }
 }
-

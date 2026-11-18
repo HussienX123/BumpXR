@@ -1,0 +1,14 @@
+# Exclude everything by default (no docs, images, PDFs, video, or SDK files)
+/*
+
+# Allow traversing into Assets/BumpXR/ and its subdirectories
+!/Assets/
+/Assets/*
+!/Assets/BumpXR/
+/Assets/BumpXR/**
+!/Assets/BumpXR/**/
+
+# Include only BumpXR C# scripts and assembly definitions
+!/Assets/BumpXR/**/*.cs
+!/Assets/BumpXR/**/*.asmdef
+

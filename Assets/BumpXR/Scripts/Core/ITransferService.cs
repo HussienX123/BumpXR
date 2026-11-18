@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace BumpXR.Core
@@ -20,16 +22,90 @@ namespace BumpXR.Core
         public override string ToString() => string.IsNullOrEmpty(Message) ? Status.ToString() : $"{Status}: {Message}";
     }
 
-    /// <summary>A validated incoming transfer offer. Nothing is written to disk until AcceptAsync is called.</summary>
+    public readonly struct OutgoingFile
+    {
+        public readonly string FileName;
+        public readonly string MimeType;
+        public readonly byte[] Data;
+        public readonly Func<byte[]> ReadData;
+
+        public OutgoingFile(string fileName, string mimeType, byte[] data)
+        {
+            FileName = fileName;
+            MimeType = mimeType;
+            Data = data;
+            ReadData = null;
+        }
+
+        public OutgoingFile(string fileName, string mimeType, Func<byte[]> readData)
+        {
+            FileName = fileName;
+            MimeType = mimeType;
+            Data = null;
+            ReadData = readData;
+        }
+
+        public byte[] ResolveBytes() => Data ?? ReadData?.Invoke();
+    }
+
+    public readonly struct OfferItemInfo
+    {
+        public readonly string SafeName;
+        public readonly string MimeType;
+        public readonly long Size;
+
+        public OfferItemInfo(string safeName, string mimeType, long size)
+        {
+            SafeName = safeName;
+            MimeType = mimeType;
+            Size = size;
+        }
+    }
+
+    public readonly struct BatchProgress
+    {
+        public readonly int FileIndex;
+        public readonly int FileCount;
+        public readonly string FileName;
+        public readonly float FileProgress;
+        public readonly float OverallProgress;
+
+        public BatchProgress(int fileIndex, int fileCount, string fileName, float fileProgress, float overallProgress)
+        {
+            FileIndex = fileIndex;
+            FileCount = fileCount;
+            FileName = fileName;
+            FileProgress = fileProgress;
+            OverallProgress = overallProgress;
+        }
+    }
+
+    /// <summary>A validated incoming transfer offer (single file or batch of up to 10 images). Nothing touches disk until accepted.</summary>
     public abstract class IncomingOffer
     {
         public string SenderName;
         public string FileName;
         public string MimeType;
         public long Size;
+        public IReadOnlyList<OfferItemInfo> Items = Array.Empty<OfferItemInfo>();
 
-        /// <summary>Accept the offer, stream the bytes, and return the saved file path (or throw on failure).</summary>
-        public abstract Task<string> AcceptAsync(IProgress<float> progress);
+        public int Count => Items != null && Items.Count > 0 ? Items.Count : 1;
+        public long TotalSize => Size;
+
+        /// <summary>Accept the batch, stream all files sequentially, and return their saved paths (atomic cleanup on error/cancel).</summary>
+        public abstract Task<IReadOnlyList<string>> AcceptBatchAsync(
+            IProgress<BatchProgress> progress,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>Single-file convenience wrapper over AcceptBatchAsync.</summary>
+        public virtual async Task<string> AcceptAsync(IProgress<float> progress)
+        {
+            IProgress<BatchProgress> mapped = progress == null
+                ? null
+                : new Progress<BatchProgress>(bp => progress.Report(bp.OverallProgress));
+            IReadOnlyList<string> paths = await AcceptBatchAsync(mapped);
+            return paths != null && paths.Count > 0 ? paths[0] : null;
+        }
 
         public abstract void Decline();
     }
@@ -53,5 +129,8 @@ namespace BumpXR.Core
 
         Task<TransferResult> SendAsync(PeerInfo peer, string senderName, string fileName, string mimeType,
             byte[] data, IProgress<float> progress);
+
+        Task<TransferResult> SendBatchAsync(PeerInfo peer, string senderName, IReadOnlyList<OutgoingFile> files,
+            IProgress<BatchProgress> progress = null, CancellationToken cancellationToken = default);
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using BumpXR.Core;
 using BumpXR.Transfer;
@@ -9,7 +10,7 @@ namespace BumpXR.Discovery
     /// <summary>
     /// Solo-demo decorator. Wraps real discovery + transfer and adds one simulated peer, always labeled "Demo Friend".
     /// It shows up if no real peer is found within 10 s of discovery starting, or via the manual toggle.
-    /// Sending to it simulates acceptance + progress, then it sends a sample photo back through the normal incoming flow.
+    /// Sending a single photo or batch simulates acceptance + sequential progress, then sends the same photos back.
     /// </summary>
     public sealed class DemoFriendService : IDiscoveryService, ITransferService
     {
@@ -19,9 +20,7 @@ namespace BumpXR.Discovery
 
         private readonly IDiscoveryService _discovery;
         private readonly ITransferService _transfer;
-        private readonly IMediaSource _media;
         private readonly string _receiveDir;
-        private readonly Random _random = new Random();
         private bool _realPeerSeen;
         private int _discoveryGeneration;
 
@@ -40,11 +39,10 @@ namespace BumpXR.Discovery
         public event Action<IncomingOffer> OfferReceived;
         public event Action TokenChanged;
 
-        public DemoFriendService(IDiscoveryService discovery, ITransferService transfer, IMediaSource media, string receiveDir)
+        public DemoFriendService(IDiscoveryService discovery, ITransferService transfer, string receiveDir)
         {
             _discovery = discovery;
             _transfer = transfer;
-            _media = media;
             _receiveDir = receiveDir;
 
             _discovery.PeerFound += p => { _realPeerSeen = true; PeerFound?.Invoke(p); };
@@ -94,63 +92,128 @@ namespace BumpXR.Discovery
         public void StartListening() => _transfer.StartListening();
         public void StopListening() => _transfer.StopListening();
 
-        public async Task<TransferResult> SendAsync(PeerInfo peer, string senderName, string fileName, string mimeType,
+        public Task<TransferResult> SendAsync(PeerInfo peer, string senderName, string fileName, string mimeType,
             byte[] data, IProgress<float> progress)
         {
+            IProgress<BatchProgress> mapped = progress == null
+                ? null
+                : new Progress<BatchProgress>(bp => progress.Report(bp.OverallProgress));
+            return SendBatchAsync(peer, senderName, new[] { new OutgoingFile(fileName, mimeType, data) }, mapped);
+        }
+
+        public async Task<TransferResult> SendBatchAsync(
+            PeerInfo peer,
+            string senderName,
+            IReadOnlyList<OutgoingFile> files,
+            IProgress<BatchProgress> progress = null,
+            CancellationToken cancellationToken = default)
+        {
             if (peer == null || !peer.IsDemo)
-                return await _transfer.SendAsync(peer, senderName, fileName, mimeType, data, progress);
+                return await _transfer.SendBatchAsync(peer, senderName, files, progress, cancellationToken);
 
-            if (!ReceivedStore.IsAllowedMime(mimeType) || data == null || data.Length == 0 || data.Length > LocalNetworkTransferService.MaxFileBytes)
-                return new TransferResult(TransferStatus.Rejected, "not allowed");
+            if (files == null || files.Count == 0 || files.Count > LocalNetworkTransferService.MaxBatchItems)
+                return new TransferResult(TransferStatus.Rejected, "batch count not allowed");
 
-            await Task.Delay(800); // "Demo Friend" thinks, then accepts
-            for (int i = 1; i <= 10; i++)
+            long total = 0;
+            var payloads = new byte[files.Count][];
+            var items = new OfferItemInfo[files.Count];
+            for (int i = 0; i < files.Count; i++)
             {
-                await Task.Delay(150);
-                progress?.Report(i / 10f);
+                OutgoingFile f = files[i];
+                if (!ReceivedStore.IsAllowedMime(f.MimeType))
+                    return new TransferResult(TransferStatus.Rejected, "type_not_allowed");
+                byte[] bytes = f.ResolveBytes();
+                if (bytes == null || bytes.Length == 0 || bytes.Length > LocalNetworkTransferService.MaxFileBytes)
+                    return new TransferResult(TransferStatus.Rejected, "size_not_allowed");
+                if (total > LocalNetworkTransferService.MaxBatchBytes - bytes.Length)
+                    return new TransferResult(TransferStatus.Rejected, "batch_size_not_allowed");
+                total += bytes.Length;
+                payloads[i] = bytes;
+                items[i] = new OfferItemInfo(ReceivedStore.SanitizeFileName(f.FileName, f.MimeType), f.MimeType, bytes.Length);
             }
 
-            ReplyWithSamplePhoto(fileName);
+            try
+            {
+                await Task.Delay(800, cancellationToken);
+                const int stepsPerFile = 5;
+                int totalSteps = files.Count * stepsPerFile;
+                int doneSteps = 0;
+                for (int fi = 0; fi < files.Count; fi++)
+                {
+                    for (int s = 1; s <= stepsPerFile; s++)
+                    {
+                        await Task.Delay(60, cancellationToken);
+                        doneSteps++;
+                        progress?.Report(new BatchProgress(fi, files.Count, items[fi].SafeName, s / (float)stepsPerFile, doneSteps / (float)totalSteps));
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return new TransferResult(TransferStatus.Failed, "cancelled");
+            }
+
+            _ = ReplyWithPhotosAsync(items, payloads, total);
             return new TransferResult(TransferStatus.Completed);
         }
 
-        private async void ReplyWithSamplePhoto(string sentFileName)
+        private async Task ReplyWithPhotosAsync(OfferItemInfo[] items, byte[][] payloads, long total)
         {
             await Task.Delay(2000);
-            IReadOnlyList<MediaItem> items = _media.Items;
-            if (items.Count == 0) return;
-
-            int index = _random.Next(items.Count);
-            if (items.Count > 1 && items[index].FileName == sentFileName) index = (index + 1) % items.Count;
-            OfferReceived?.Invoke(new DemoIncomingOffer(this, items[index]));
+            if (DemoFriendVisible) OfferReceived?.Invoke(new DemoIncomingOffer(_receiveDir, items, payloads, total));
         }
 
         private sealed class DemoIncomingOffer : IncomingOffer
         {
-            private readonly DemoFriendService _owner;
-            private readonly MediaItem _item;
-            private readonly byte[] _bytes;
+            private readonly string _receiveDir;
+            private readonly byte[][] _payloads;
 
-            public DemoIncomingOffer(DemoFriendService owner, MediaItem item)
+            public DemoIncomingOffer(string receiveDir, OfferItemInfo[] items, byte[][] payloads, long total)
             {
-                _owner = owner;
-                _item = item;
-                _bytes = owner._media.ReadBytes(item);
+                _receiveDir = receiveDir;
+                _payloads = payloads;
                 SenderName = FriendName;
-                FileName = item.FileName;
-                MimeType = item.MimeType;
-                Size = _bytes.Length;
+                Items = items;
+                FileName = items[0].SafeName;
+                MimeType = items[0].MimeType;
+                Size = total;
             }
 
-            public override async Task<string> AcceptAsync(IProgress<float> progress)
+            public override async Task<IReadOnlyList<string>> AcceptBatchAsync(
+                IProgress<BatchProgress> progress,
+                CancellationToken cancellationToken = default)
             {
-                for (int i = 1; i <= 8; i++)
+                var saved = new List<string>(Items.Count);
+                try
                 {
-                    await Task.Delay(150);
-                    progress?.Report(i / 8f);
+                    const int stepsPerFile = 4;
+                    int totalSteps = Items.Count * stepsPerFile;
+                    int doneSteps = 0;
+                    for (int fi = 0; fi < Items.Count; fi++)
+                    {
+                        for (int s = 1; s <= stepsPerFile; s++)
+                        {
+                            await Task.Delay(60, cancellationToken);
+                            doneSteps++;
+                            progress?.Report(new BatchProgress(
+                                fi,
+                                Items.Count,
+                                Items[fi].SafeName,
+                                s / (float)stepsPerFile,
+                                doneSteps / (float)totalSteps));
+                        }
+                        saved.Add(ReceivedStore.SaveBytes(_receiveDir, Items[fi].SafeName, Items[fi].MimeType, _payloads[fi]));
+                    }
+                    return saved;
                 }
-
-                return ReceivedStore.SaveBytes(_owner._receiveDir, _item.FileName, _item.MimeType, _bytes);
+                catch
+                {
+                    for (int i = 0; i < saved.Count; i++)
+                    {
+                        try { if (System.IO.File.Exists(saved[i])) System.IO.File.Delete(saved[i]); } catch { }
+                    }
+                    throw;
+                }
             }
 
             public override void Decline() { }

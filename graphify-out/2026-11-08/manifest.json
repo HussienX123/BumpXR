@@ -1,0 +1,172 @@
+{
+  "Assets/BumpXR/Editor/BumpXRBuildTools.cs": {
+    "mtime": 1794113244.15432,
+    "seen": 1794113283.024906,
+    "ast_hash": "18ea4e639248abbf86e74756dc6ac1ef",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Editor/DiscoverySceneBuilder.cs": {
+    "mtime": 1793984629.1243145,
+    "seen": 1794038146.2732565,
+    "ast_hash": "507e3a390bb5fdc989e5b8fd7432bfe6",
+    "semantic_hash": "507e3a390bb5fdc989e5b8fd7432bfe6"
+  },
+  "Assets/BumpXR/Scripts/BumpXR.Runtime.asmdef": {
+    "mtime": 1794062693.8334053,
+    "seen": 1794065986.8815923,
+    "ast_hash": "7e22609067136e5dc8abfd7a994aaece",
+    "semantic_hash": "",
+    "language": "language=.json"
+  },
+  "Assets/BumpXR/Scripts/Core/IDiscoveryService.cs": {
+    "mtime": 1794002804.3694913,
+    "seen": 1794038146.2732565,
+    "ast_hash": "205f94b379b60960c81cd6dc8b412511",
+    "semantic_hash": "205f94b379b60960c81cd6dc8b412511"
+  },
+  "Assets/BumpXR/Scripts/Core/IMediaSource.cs": {
+    "mtime": 1794112136.5055287,
+    "seen": 1794113283.024906,
+    "ast_hash": "c85eddf16f9840d2fda578aaf9effa8b",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Scripts/Core/ITransferService.cs": {
+    "mtime": 1794112136.5731537,
+    "seen": 1794113283.024906,
+    "ast_hash": "6adfbc6cb8f34ea33022a0883305fb4c",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Scripts/Core/PeerInfo.cs": {
+    "mtime": 1794002804.4677918,
+    "seen": 1794038146.2732565,
+    "ast_hash": "30204767de545fdd996b335dbc943ff3",
+    "semantic_hash": "30204767de545fdd996b335dbc943ff3"
+  },
+  "Assets/BumpXR/Scripts/Discovery/DemoFriendService.cs": {
+    "mtime": 1794112136.6423874,
+    "seen": 1794113283.024906,
+    "ast_hash": "6d4d578d473bc9ea9f055e8f61d1db58",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Scripts/Discovery/MetaDiscoveryService.cs": {
+    "mtime": 1794002804.3112042,
+    "seen": 1794038146.2732565,
+    "ast_hash": "370a0f56e89e7df443dc3a21aa40c192",
+    "semantic_hash": "370a0f56e89e7df443dc3a21aa40c192"
+  },
+  "Assets/BumpXR/Scripts/Discovery/SampleMediaSource.cs": {
+    "mtime": 1794112136.7172608,
+    "seen": 1794113283.024906,
+    "ast_hash": "8e9d368686fce198276aa8f73d493448",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Scripts/Handshake/HandshakeStub.cs": {
+    "mtime": 1793984109.415773,
+    "seen": 1794038146.2732565,
+    "ast_hash": "02e5add2794a6abcd3d37e87c384654e",
+    "semantic_hash": "02e5add2794a6abcd3d37e87c384654e"
+  },
+  "Assets/BumpXR/Scripts/Transfer/LocalNetworkTransferService.cs": {
+    "mtime": 1794112136.8788261,
+    "seen": 1794113283.024906,
+    "ast_hash": "3035446fb64bd3ee3ad56d27410ff279",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Scripts/Transfer/NetworkUtil.cs": {
+    "mtime": 1794002539.1055963,
+    "seen": 1794038146.2732565,
+    "ast_hash": "4c2e8082301f86ca6ff5809f920f23c1",
+    "semantic_hash": "4c2e8082301f86ca6ff5809f920f23c1"
+  },
+  "Assets/BumpXR/Scripts/Transfer/ReceivedStore.cs": {
+    "mtime": 1794002728.0333464,
+    "seen": 1794038146.2732565,
+    "ast_hash": "7c4ab3ce39f91cae3bdb57379dd9999e",
+    "semantic_hash": "7c4ab3ce39f91cae3bdb57379dd9999e"
+  },
+  "Assets/BumpXR/Scripts/Transfer/StubTransferService.cs": {
+    "mtime": 1794089171.570937,
+    "seen": 1794089724.0276887,
+    "ast_hash": "4f3b345a6933514d703a702f27a35f38",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Scripts/UI/BumpMainController.cs": {
+    "mtime": 1794112137.017354,
+    "seen": 1794113283.024906,
+    "ast_hash": "f49137524921786e68366e026a80527f",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Scripts/UI/DiscoveryDebugPanel.cs": {
+    "mtime": 1794002480.7603517,
+    "seen": 1794038146.2732565,
+    "ast_hash": "9b1880017879446974cbf256b743dd11",
+    "semantic_hash": "9b1880017879446974cbf256b743dd11"
+  },
+  "Assets/BumpXR/Tests/PlayMode/BumpXR.Tests.PlayMode.asmdef": {
+    "mtime": 1794002539.2129633,
+    "seen": 1794038146.2732565,
+    "ast_hash": "4c5e040dfec8e0eddfad74d6cfe8dc3a",
+    "semantic_hash": "4c5e040dfec8e0eddfad74d6cfe8dc3a",
+    "language": "language=.json"
+  },
+  "Assets/BumpXR/Tests/PlayMode/TransferLoopbackTests.cs": {
+    "mtime": 1794112137.0789733,
+    "seen": 1794113283.024906,
+    "ast_hash": "8db8c95fc10ccc9494c1f7f0bc1b434a",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Scripts/Core/BumpDetectorCore.cs": {
+    "mtime": 1794112136.4639754,
+    "seen": 1794113283.024906,
+    "ast_hash": "ed7644137033e8aff0103cb2eee886a0",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Scripts/Core/BumpSettings.cs": {
+    "mtime": 1794088878.6660347,
+    "seen": 1794089724.0276887,
+    "ast_hash": "c34e173ff2aa9f7507f184d9aa5795d8",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Scripts/Core/IBumpDetector.cs": {
+    "mtime": 1794062996.1976328,
+    "seen": 1794065986.882592,
+    "ast_hash": "5c2dbd85ff717e0a1be77e398b667597",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Scripts/Gestures/HandBumpDetector.cs": {
+    "mtime": 1794112136.770298,
+    "seen": 1794113283.024906,
+    "ast_hash": "d88cc2a6fc124c94a22276a08b3440e1",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Scripts/UI/BumpFeedback.cs": {
+    "mtime": 1794065521.9372091,
+    "seen": 1794065986.882592,
+    "ast_hash": "0acc4d50c8c160c246644ca31697363e",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Scripts/UI/DemoFriendOrb.cs": {
+    "mtime": 1794065523.0628166,
+    "seen": 1794065986.882592,
+    "ast_hash": "8c0692f81194df171fd835bab4b50d74",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Tests/PlayMode/BumpGestureTests.cs": {
+    "mtime": 1794089398.2450929,
+    "seen": 1794089724.0276887,
+    "ast_hash": "0daafd016ecf0d351dc97994a9271077",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Scripts/Discovery/CapturesMediaSource.cs": {
+    "mtime": 1794089738.0669212,
+    "seen": 1794113283.024906,
+    "ast_hash": "86eeefcaa8e629232bbfe586dcc84c7e",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Scripts/Discovery/MomentsMediaSource.cs": {
+    "mtime": 1794089738.2271993,
+    "seen": 1794113283.024906,
+    "ast_hash": "6275807b3a74f8f908f7233f82e6398b",
+    "semantic_hash": ""
+  }
+}

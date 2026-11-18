@@ -3,6 +3,7 @@
     "rootNamespace": "BumpXR",
     "references": [
         "Oculus.VR",
+        "Oculus.Interaction",
         "UnityEngine.UI"
     ],
     "includePlatforms": [],

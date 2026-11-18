@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using BumpXR.Core;
 
@@ -17,5 +19,9 @@ namespace BumpXR.Transfer
 
         public Task<TransferResult> SendAsync(PeerInfo peer, string senderName, string fileName, string mimeType,
             byte[] data, IProgress<float> progress) => throw new NotImplementedException();
+
+        public Task<TransferResult> SendBatchAsync(PeerInfo peer, string senderName, IReadOnlyList<OutgoingFile> files,
+            IProgress<BatchProgress> progress = null, CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
     }
 }
