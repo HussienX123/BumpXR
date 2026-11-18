@@ -184,12 +184,21 @@ namespace BumpXR.Discovery
 #if UNITY_ANDROID
         private sealed class AndroidCapturesBackend : ICapturesBackend
         {
-            public bool HasPermission() => Permission.HasUserAuthorizedPermission(ReadMediaImagesPermission);
+            private readonly string _readPermission;
+
+            public AndroidCapturesBackend()
+            {
+                using var version = new AndroidJavaClass("android.os.Build$VERSION");
+                _readPermission = version.GetStatic<int>("SDK_INT") >= 33
+                    ? ReadMediaImagesPermission
+                    : Permission.ExternalStorageRead;
+            }
+
+            public bool HasPermission() => Permission.HasUserAuthorizedPermission(_readPermission);
 
             public Task<bool> RequestPermissionAsync()
             {
-                if (Permission.HasUserAuthorizedPermission(ReadMediaImagesPermission))
-                    return Task.FromResult(true);
+                if (HasPermission()) return Task.FromResult(true);
 
                 var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 var callbacks = new PermissionCallbacks();
@@ -197,7 +206,7 @@ namespace BumpXR.Discovery
                 // (PermissionDeniedAndDontAskAgain is unreliable on newer Android; omitting it routes denials to PermissionDenied).
                 callbacks.PermissionGranted += _ => tcs.TrySetResult(true);
                 callbacks.PermissionDenied += _ => tcs.TrySetResult(false);
-                Permission.RequestUserPermission(ReadMediaImagesPermission, callbacks);
+                Permission.RequestUserPermission(_readPermission, callbacks);
                 return tcs.Task;
             }
 

@@ -157,6 +157,7 @@ namespace BumpXR.Tests
                 ctrl.ToggleDemoFriend();
                 Assert.IsFalse(ctrl.IsArmed);
                 ctrl.SelectPeerByIndex(0);
+                yield return TransferLoopbackTests.LoadFakeCaptures(ctrl);
                 ctrl.SelectPhotoByIndex(0);
                 yield return null;
                 Assert.IsTrue(ctrl.IsArmed, "photo + peer selected must arm");
@@ -202,6 +203,7 @@ namespace BumpXR.Tests
                 var ctrl = UnityEngine.Object.FindFirstObjectByType<BumpMainController>();
                 ctrl.ToggleDemoFriend();
                 ctrl.SelectPeerByIndex(0);
+                yield return TransferLoopbackTests.LoadFakeCaptures(ctrl);
                 ctrl.SelectPhotoByIndex(1);
                 int before = ctrl.ReceivedCount;
                 ctrl.Send(); // poke fallback sends; no bump happens afterwards
@@ -339,6 +341,7 @@ namespace BumpXR.Tests
                 ctrl.SimulateColdStartState("(none)", NetworkReachability.NotReachable, "StartDiscovery failed: PermissionDenied");
                 ctrl.ToggleDemoFriend();
                 ctrl.SelectPeerByIndex(0);
+                yield return TransferLoopbackTests.LoadFakeCaptures(ctrl);
                 ctrl.SelectPhotoByIndex(0);
                 yield return null;
                 Assert.IsTrue(ctrl.IsArmed, "Demo Friend must still arm under cold-start failures");

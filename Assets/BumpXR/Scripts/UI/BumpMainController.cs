@@ -14,10 +14,10 @@ using UnityEngine.UI;
 
 namespace BumpXR.UI
 {
-    public enum MediaTab { Samples, Captures, Moments }
+    public enum MediaTab { Captures = 1, Moments = 2 }
 
     /// <summary>
-    /// BumpMain app: wires discovery + batch transfer + Demo Friend + Samples/My Captures/Moments behind IMediaSource
+    /// BumpMain app: wires discovery + batch transfer + Demo Friend + My Captures and Moments behind IMediaSource
     /// and builds a hands-only world-space UI.
     /// All buttons are plain UGUI Buttons driven by Meta Interaction SDK hand poke / pinch-ray
     /// (PointableCanvas + PokeInteractable/RayInteractable on the canvases, PointableCanvasModule on the EventSystem).
@@ -30,7 +30,6 @@ namespace BumpXR.UI
         private const int GridPageSize = 6;
         private const float AutoDeclineSeconds = 30f;
         private const int MaxPeerRows = 5;
-        private const int MaxMoments = 12;
         private const string CoachDoneKey = "BumpXR.CoachDone";
         private const float StatusFlashSeconds = 3f;
         private const float HealthCheckSeconds = 15f;
@@ -48,11 +47,10 @@ namespace BumpXR.UI
         private DemoFriendService _demo;
         private IDiscoveryService _discovery;
         private ITransferService _transferApi;
-        private SampleMediaSource _samplesMedia;
         private MomentsMediaSource _momentsMedia;
         private CapturesMediaSource _capturesMedia;
         private IMediaSource _activeMedia;
-        private MediaTab _activeTab = MediaTab.Samples;
+        private MediaTab _activeTab = MediaTab.Captures;
         private PeerInfo _self;
         private string _ip;
         private string _ipOverride;
@@ -81,18 +79,14 @@ namespace BumpXR.UI
         private readonly List<PhotoTile> _photoTiles = new List<PhotoTile>();
         private readonly List<MediaItem> _selectedItems = new List<MediaItem>();
         private readonly Dictionary<string, IMediaSource> _itemSources = new Dictionary<string, IMediaSource>(StringComparer.Ordinal);
-        private readonly List<string> _receivedPaths = new List<string>();
         private readonly Dictionary<string, Texture2D> _thumbCache = new Dictionary<string, Texture2D>(StringComparer.Ordinal);
-        private readonly HashSet<string> _thumbLoading = new HashSet<string>(StringComparer.Ordinal);
-        private readonly List<KeyValuePair<Button, string>> _momentButtons = new List<KeyValuePair<Button, string>>();
-        private readonly List<Texture2D> _textures = new List<Texture2D>();
+        private readonly HashSet<(IMediaSource source, string id)> _thumbLoading = new HashSet<(IMediaSource, string)>();
         private readonly Queue<IncomingOffer> _offerQueue = new Queue<IncomingOffer>();
         private PeerInfo _selectedPeer;
         private int _gridPage;
         private bool _gridDirty = true;
         private bool _sending;
         private bool _peersDirty = true;
-        private bool _receivedDirty = true;
         private IncomingOffer _current;
         private bool _accepting;
         private float _incomingDeadline;
@@ -121,7 +115,15 @@ namespace BumpXR.UI
         private Button _devButton;
         private RectTransform _peerListRoot;
         private Text _demoToggleLabel;
-        private Button _tabSamplesBtn, _tabCapturesBtn, _tabMomentsBtn;
+        private static readonly Color GallerySurface = new Color32(20, 25, 42, 255);
+        private static readonly Color GalleryControl = new Color32(42, 49, 72, 255);
+        private static readonly Color GalleryTile = new Color32(30, 37, 57, 255);
+        private static readonly Color GalleryAccent = new Color32(118, 230, 179, 255);
+        private static readonly Color GalleryMuted = new Color32(177, 187, 209, 255);
+        private static readonly Color GalleryInk = new Color32(17, 34, 32, 255);
+
+        private Button _tabCapturesBtn, _tabMomentsBtn, _refreshCapturesBtn, _galleryActionBtn, _clearSelectionBtn;
+        private Text _pageLabel;
         private Text _countBadgeLabel;
         private Button _prevPageBtn, _nextPageBtn;
         private Text _tabMessageLabel;
@@ -130,11 +132,12 @@ namespace BumpXR.UI
         private RectTransform _sendFill, _sendFileFill;
         private Text _sendStatus;
         private Text _aboutText;
-        private RawImage _viewer;
-        private Text _viewerCaption;
-        private RectTransform _momentsRoot;
         private CanvasGroup _shareGroup;
+        private CanvasGroup _shareContent;
+        private Sprite _galleryCornerSprite;
         private GameObject _enlargePanel;
+        private Texture2D _previewTexture;
+        private int _previewVersion;
         private RawImage _enlargeViewer;
         private Text _enlargeCaption;
         private GameObject _devPanel;
@@ -152,6 +155,8 @@ namespace BumpXR.UI
         {
             public Button Button;
             public RawImage Thumb;
+            public Text Name;
+            public Text Placeholder;
             public GameObject Badge;
             public Text BadgeText;
             public MediaItem Item;
@@ -159,7 +164,7 @@ namespace BumpXR.UI
 
         // ---- test/automation surface (same code paths the buttons use) ----
         public int PeerCount => _peers.Count;
-        public int ReceivedCount => _receivedPaths.Count;
+        public int ReceivedCount => _momentsMedia?.Items.Count ?? 0;
         public bool IncomingVisible => _current != null;
         public bool IsSending => _sending;
         public string SendStatus => _sendStatus != null ? _sendStatus.text : "";
@@ -194,14 +199,13 @@ namespace BumpXR.UI
             if (string.IsNullOrEmpty(displayName)) displayName = Application.isEditor ? "Editor" : SystemInfo.deviceModel;
 
             _receiveDir = Path.Combine(Application.persistentDataPath, "Received");
-            _samplesMedia = new SampleMediaSource();
             _momentsMedia = new MomentsMediaSource(_receiveDir);
             _capturesMedia = new CapturesMediaSource();
-            _activeMedia = _samplesMedia;
+            _activeMedia = _capturesMedia;
 
             _transfer = new LocalNetworkTransferService(_receiveDir);
             _meta = new MetaDiscoveryService();
-            _demo = new DemoFriendService(_meta, _transfer, _samplesMedia, _receiveDir);
+            _demo = new DemoFriendService(_meta, _transfer, _receiveDir);
             _discovery = _demo;
             _transferApi = _demo;
 
@@ -237,6 +241,7 @@ namespace BumpXR.UI
             PlaceInFront(shareRoot, 0.6f, -0.03f);
             StartCoroutine(ReplaceAfterTrackingSettles());
             BeginNetworking();
+            _ = RefreshCapturesAsync(requestPermission: false);
         }
 
         private IEnumerator ReplaceAfterTrackingSettles()
@@ -256,7 +261,12 @@ namespace BumpXR.UI
         {
             bool wasActive = _activeTab == MediaTab.Captures;
             _capturesMedia = new CapturesMediaSource(backend);
-            if (wasActive) _activeMedia = _capturesMedia;
+            if (wasActive)
+            {
+                _activeMedia = _capturesMedia;
+                foreach (Texture2D texture in _thumbCache.Values) Destroy(texture);
+                _thumbCache.Clear();
+            }
             _gridDirty = true;
         }
 
@@ -318,7 +328,10 @@ namespace BumpXR.UI
 
         private void OnApplicationFocus(bool focus)
         {
-            if (focus) ResumeNetworking();
+            if (!focus) return;
+            ResumeNetworking();
+            if (_activeTab == MediaTab.Captures && _capturesMedia != null && _capturesMedia.State != CapturesState.NotOpened)
+                _ = RefreshCapturesAsync(requestPermission: false);
         }
 
         public async void SuspendNetworking()
@@ -374,10 +387,16 @@ namespace BumpXR.UI
 
         private void OnDestroy()
         {
+            if (_transferApi != null) _transferApi.OfferReceived -= OnOfferReceived;
             _transfer?.Dispose();
             _ = _discovery?.StopAdvertisingAsync();
             _ = _discovery?.StopDiscoveryAsync();
-            foreach (Texture2D t in _textures) if (t != null) Destroy(t);
+            if (_previewTexture != null) Destroy(_previewTexture);
+            if (_galleryCornerSprite != null)
+            {
+                Destroy(_galleryCornerSprite.texture);
+                Destroy(_galleryCornerSprite);
+            }
             foreach (Texture2D t in _thumbCache.Values) if (t != null) Destroy(t);
             if (_orb != null) Destroy(_orb.gameObject);
             if (_settings != null) Destroy(_settings);
@@ -424,26 +443,40 @@ namespace BumpXR.UI
 
         public async Task OpenTabAsync(MediaTab tab)
         {
+            if (_activeTab != tab) _gridPage = 0;
             _activeTab = tab;
-            _gridPage = 0;
-            switch (tab)
+            _gridDirty = true;
+            if (tab == MediaTab.Moments)
             {
-                case MediaTab.Samples:
-                    _activeMedia = _samplesMedia;
-                    _gridDirty = true;
-                    break;
-                case MediaTab.Moments:
-                    _momentsMedia.Refresh();
-                    _activeMedia = _momentsMedia;
-                    _gridDirty = true;
-                    break;
-                case MediaTab.Captures:
-                    _activeMedia = _capturesMedia;
-                    _gridDirty = true;
-                    await _capturesMedia.EnsureLoadedAsync();
-                    if (_activeTab == MediaTab.Captures) _gridDirty = true;
-                    break;
+                _momentsMedia.Refresh();
+                _activeMedia = _momentsMedia;
             }
+            else
+            {
+                _activeMedia = _capturesMedia;
+                await RefreshCapturesAsync(requestPermission: false);
+            }
+        }
+
+        public async Task RefreshCapturesAsync(bool requestPermission)
+        {
+            CapturesMediaSource source = _capturesMedia;
+            Task<bool> load = source.EnsureLoadedAsync(forceRefresh: true, requestPermission: requestPermission);
+            if (_activeTab == MediaTab.Captures) _gridDirty = true;
+            await load;
+            if (this == null || source != _capturesMedia) return;
+
+            if (source.State == CapturesState.Denied || source.State == CapturesState.NeedsPermission)
+            {
+                _selectedItems.RemoveAll(item =>
+                {
+                    if (!_itemSources.TryGetValue(item.Id, out IMediaSource selectedSource) || selectedSource != source)
+                        return false;
+                    _itemSources.Remove(item.Id);
+                    return true;
+                });
+            }
+            if (_activeTab == MediaTab.Captures) _gridDirty = true;
         }
 
         public void ChangePage(int delta)
@@ -492,7 +525,7 @@ namespace BumpXR.UI
             _itemSources.Clear();
         }
 
-        /// <summary>Re-send source: poking a Moment enlarges it and selects it via MomentsMediaSource.</summary>
+        /// <summary>Adds a received photo to the outgoing selection.</summary>
         public void SelectReceivedAsSource(string path)
         {
             MediaItem item = _momentsMedia.FindOrAddByPath(path);
@@ -505,7 +538,7 @@ namespace BumpXR.UI
 
         private void ToggleItemSelection(MediaItem item, IMediaSource source)
         {
-            if (item == null) return;
+            if (item == null || source == null) return;
             int existing = _selectedItems.FindIndex(s => s.Id == item.Id);
             if (existing >= 0)
             {
@@ -522,13 +555,6 @@ namespace BumpXR.UI
 
             _selectedItems.Add(item);
             _itemSources[item.Id] = source;
-        }
-
-        private byte[] ReadItemBytes(MediaItem item)
-        {
-            if (_itemSources.TryGetValue(item.Id, out IMediaSource src) && src != null)
-                return src.ReadBytes(item);
-            return _samplesMedia.ReadBytes(item);
         }
 
         // ================= bump =================
@@ -554,6 +580,13 @@ namespace BumpXR.UI
             _lastBumpShareOpen = true;
             _bumpConsumed = false;
 
+            // Bump = send: no manual friend selection needed. Prefer a real nearby headset over the Demo Friend.
+            if (_selectedPeer == null && !_sending && _current == null && _selectedItems.Count > 0 && _peers.Count > 0)
+            {
+                _selectedPeer = _peers.LastOrDefault(p => !p.IsDemo) ?? _peers[_peers.Count - 1];
+                _peersDirty = true;
+            }
+
             if (IsArmed)
             {
                 if (_selectedPeer.IsDemo) _orb.MeetFist(e.Position);
@@ -561,7 +594,7 @@ namespace BumpXR.UI
             }
             else if (!_sending)
             {
-                _sendStatus.text = _selectedItems.Count == 0 ? "Pick a photo, then a friend, then bump." : "Pick a friend, then bump.";
+                _sendStatus.text = _selectedItems.Count == 0 ? "Pick a photo, then bump your friend." : "No friend nearby yet - tap Demo Friend or wait for a headset.";
             }
         }
 
@@ -569,7 +602,7 @@ namespace BumpXR.UI
 
         public async void Send()
         {
-            if (_sending || _selectedPeer == null || _selectedItems.Count == 0 || _current != null) return;
+            if (!IsArmed) return;
             _sending = true;
             PeerInfo peer = _selectedPeer;
             List<MediaItem> batch = _selectedItems.Take(MaxSelectedPhotos).ToList();
@@ -585,7 +618,8 @@ namespace BumpXR.UI
                 for (int i = 0; i < batch.Count; i++)
                 {
                     MediaItem item = batch[i];
-                    outgoing.Add(new OutgoingFile(item.FileName, item.MimeType, () => ReadItemBytes(item)));
+                    IMediaSource source = _itemSources[item.Id];
+                    outgoing.Add(new OutgoingFile(item.FileName, item.MimeType, () => source.ReadBytes(item)));
                 }
 
                 var progress = new Progress<BatchProgress>(bp =>
@@ -642,6 +676,7 @@ namespace BumpXR.UI
                 return;
             }
 
+            ClosePreview();
             _current = _offerQueue.Dequeue();
             _accepting = false;
             _incomingDeadline = Time.unscaledTime + AutoDeclineSeconds;
@@ -657,8 +692,11 @@ namespace BumpXR.UI
             _incButtons.SetActive(true);
             incomingRoot.gameObject.SetActive(true);
             PlaceInFront(incomingRoot, 0.45f, -0.02f);
+            var incCanvas = incomingRoot.GetComponent<Canvas>();
+            if (incCanvas != null) { incCanvas.overrideSorting = true; incCanvas.sortingOrder = 500; }
+            incomingRoot.SetAsLastSibling();
             _shareGroup.blocksRaycasts = false;
-            _shareGroup.alpha = 0.35f;
+            _shareGroup.alpha = 0f;
             if (_current.SenderName == DemoFriendService.FriendName) _orb.Offer();
 
             if (!_bumpConsumed && BumpSettings.IsSimultaneous(_lastBumpTime, _lastBumpShareOpen, Time.unscaledTime, _settings.simultaneousBumpWindow))
@@ -707,17 +745,14 @@ namespace BumpXR.UI
                 IReadOnlyList<string> paths = await offer.AcceptBatchAsync(progress);
                 if (paths != null && paths.Count > 0)
                 {
-                    for (int i = 0; i < paths.Count; i++) _receivedPaths.Add(paths[i]);
                     _momentsMedia.Refresh();
-                    _receivedDirty = true;
                     if (_activeTab == MediaTab.Moments) _gridDirty = true;
                     string newest = paths[paths.Count - 1];
-                    ShowReceived(newest);
                     _sendStatus.text = paths.Count == 1
                         ? $"Received {Path.GetFileName(newest)} from {offer.SenderName}"
                         : $"Received {paths.Count} photos from {offer.SenderName}";
                     Flash("Received!");
-                    _feedback.TransferComplete(_viewer.transform.position);
+                    _feedback.TransferComplete(shareRoot.position);
                 }
             }
             catch (Exception e)
@@ -762,7 +797,6 @@ namespace BumpXR.UI
             }
 
             if (_peersDirty) RefreshPeers();
-            if (_receivedDirty) RefreshReceived();
             if (_gridDirty) RefreshPhotoGrid();
 
             UpdateTabAndSelectionVisuals();
@@ -773,12 +807,10 @@ namespace BumpXR.UI
             {
                 int n = _selectedItems.Count;
                 _sendLabel.text = $"{n} {(n == 1 ? "photo" : "photos")} to {_selectedPeer.DisplayName}";
-                _sendLabel.fontSize = _sendLabel.text.Length > 24 ? 22 : 26;
             }
             else
             {
-                _sendLabel.text = "SEND";
-                _sendLabel.fontSize = 36;
+                _sendLabel.text = _sending ? "Sending..." : "Send";
             }
 
             UpdateStatusLine(armed);
@@ -800,11 +832,11 @@ namespace BumpXR.UI
 
         private void UpdateTabAndSelectionVisuals()
         {
-            StyleTab(_tabSamplesBtn, _activeTab == MediaTab.Samples);
             StyleTab(_tabCapturesBtn, _activeTab == MediaTab.Captures);
             StyleTab(_tabMomentsBtn, _activeTab == MediaTab.Moments);
 
-            _countBadgeLabel.text = $"{_selectedItems.Count}/{MaxSelectedPhotos}";
+            _countBadgeLabel.text = $"{_selectedItems.Count}/{MaxSelectedPhotos} selected";
+            _clearSelectionBtn.interactable = _selectedItems.Count > 0;
 
             for (int i = 0; i < _photoTiles.Count; i++)
             {
@@ -812,26 +844,18 @@ namespace BumpXR.UI
                 if (!tile.Button.gameObject.activeSelf || tile.Item == null) continue;
                 int order = _selectedItems.FindIndex(s => s.Id == tile.Item.Id);
                 bool sel = order >= 0;
-                tile.Button.image.color = sel ? new Color(0.2f, 0.85f, 1f) : new Color(0.25f, 0.25f, 0.3f);
+                tile.Button.image.color = sel ? GalleryAccent : GalleryTile;
+                tile.Name.color = sel ? GalleryInk : Color.white;
                 tile.Badge.SetActive(sel);
                 if (sel) tile.BadgeText.text = (order + 1).ToString();
             }
 
-            foreach (KeyValuePair<Button, string> m in _momentButtons)
-            {
-                if (m.Key == null) continue;
-                string id = "moment:" + Path.GetFullPath(m.Value);
-                bool sel = _selectedItems.Any(s => s.Id == id);
-                m.Key.image.color = sel ? new Color(0.2f, 0.85f, 1f) : new Color(0.25f, 0.25f, 0.3f);
-            }
         }
 
         private static void StyleTab(Button btn, bool active)
         {
-            if (btn == null) return;
-            btn.image.color = active ? new Color(0.2f, 0.85f, 1f) : new Color(0.22f, 0.24f, 0.3f);
-            var txt = btn.GetComponentInChildren<Text>();
-            if (txt != null) txt.color = active ? Color.black : Color.white;
+            btn.image.color = active ? GalleryAccent : GalleryControl;
+            btn.GetComponentInChildren<Text>().color = active ? GalleryInk : Color.white;
         }
 
         private bool NoHandPromptActive =>
@@ -1001,7 +1025,8 @@ namespace BumpXR.UI
         private void BuildShareUi()
         {
             if (!shareRoot.TryGetComponent(out _shareGroup)) _shareGroup = shareRoot.gameObject.AddComponent<CanvasGroup>();
-            RectTransform r = shareRoot;
+            RectTransform r = Rect("ShareContent", shareRoot, Vector2.zero, shareRoot.rect.size);
+            _shareContent = r.gameObject.AddComponent<CanvasGroup>();
 
             // Header: title, status line, Dev toggle (hidden until 5 pokes on version text)
             Label(r, "BumpXR", new Vector2(20, 8), new Vector2(240, 50), 40, TextAnchor.MiddleLeft, Color.white, FontStyle.Bold);
@@ -1016,101 +1041,43 @@ namespace BumpXR.UI
             _coachBanner = banner.gameObject;
             _coachBanner.SetActive(!_coachDone);
 
-            // Column A: Nearby + Retry + Demo Friend
-            Label(r, "Nearby", new Vector2(20, 118), new Vector2(155, 36), 28, TextAnchor.MiddleLeft, Color.white, FontStyle.Bold);
-            MakeButton(r, "Retry", new Vector2(180, 116), new Vector2(90, 38), new Color(0.22f, 0.35f, 0.5f), 20, RetryNetworking);
-            _peerListRoot = Rect("Peers", r, new Vector2(20, 156), new Vector2(250, 5 * 62));
-            Button demoBtn = MakeButton(r, "Demo Friend", new Vector2(20, 478), new Vector2(250, 56), new Color(0.35f, 0.25f, 0.55f), 24, ToggleDemoFriend);
+            Label(r, "Nearby", new Vector2(20, 118), new Vector2(128, 36), 28, TextAnchor.MiddleLeft, Color.white, FontStyle.Bold);
+            MakeButton(r, "Retry", new Vector2(154, 114), new Vector2(76, 42), GalleryControl, 19, RetryNetworking);
+            _peerListRoot = Rect("Peers", r, new Vector2(20, 164), new Vector2(210, 250));
+            Button demoBtn = MakeButton(r, "Demo Friend", new Vector2(20, 420), new Vector2(210, 46), GalleryControl, 21, ToggleDemoFriend);
             _demoToggleLabel = demoBtn.GetComponentInChildren<Text>();
 
-            // Column B: Tabs (Samples | My Captures | Moments) + Multi-select controls + 3x2 paged grid
-            _tabSamplesBtn = MakeButton(r, "Samples", new Vector2(286, 114), new Vector2(102, 36), new Color(0.2f, 0.85f, 1f), 19, () => OpenTab(MediaTab.Samples));
-            _tabCapturesBtn = MakeButton(r, "My Captures", new Vector2(392, 114), new Vector2(132, 36), new Color(0.22f, 0.24f, 0.3f), 18, () => OpenTab(MediaTab.Captures));
-            _tabMomentsBtn = MakeButton(r, "Moments", new Vector2(528, 114), new Vector2(96, 36), new Color(0.22f, 0.24f, 0.3f), 19, () => OpenTab(MediaTab.Moments));
+            BuildGallery(r);
 
-            RectTransform countPill = Rect("CountBadge", r, new Vector2(286, 154), new Vector2(76, 32));
-            countPill.gameObject.AddComponent<Image>().color = new Color(0.14f, 0.20f, 0.30f);
-            _countBadgeLabel = Label(countPill, "0/10", Vector2.zero, new Vector2(76, 32), 18, TextAnchor.MiddleCenter, new Color(0.4f, 0.95f, 1f), FontStyle.Bold);
-
-            MakeButton(r, "Select all", new Vector2(366, 154), new Vector2(104, 32), new Color(0.20f, 0.36f, 0.50f), 17, SelectAllPhotos);
-            MakeButton(r, "Clear", new Vector2(474, 154), new Vector2(72, 32), new Color(0.36f, 0.24f, 0.28f), 17, ClearSelection);
-            _prevPageBtn = MakeButton(r, "<", new Vector2(552, 154), new Vector2(34, 32), new Color(0.24f, 0.26f, 0.34f), 18, () => ChangePage(-1));
-            _nextPageBtn = MakeButton(r, ">", new Vector2(590, 154), new Vector2(34, 32), new Color(0.24f, 0.26f, 0.34f), 18, () => ChangePage(1));
-
-            for (int i = 0; i < GridPageSize; i++)
-            {
-                int slot = i;
-                var pos = new Vector2(286 + (i % 3) * 115, 192 + (i / 3) * 92);
-                Button b = MakeButton(r, "", pos, new Vector2(108, 86), new Color(0.25f, 0.25f, 0.3f), 18, () => TogglePhotoSlot(slot));
-                RawImage thumb = new GameObject("Thumb", typeof(RectTransform), typeof(RawImage)).GetComponent<RawImage>();
-                thumb.transform.SetParent(b.transform, false);
-                var tr = (RectTransform)thumb.transform;
-                tr.anchorMin = Vector2.zero; tr.anchorMax = Vector2.one; tr.offsetMin = new Vector2(5, 5); tr.offsetMax = new Vector2(-5, -5);
-                thumb.raycastTarget = false;
-
-                RectTransform badge = Rect("CheckBadge", b.transform, new Vector2(76, 4), new Vector2(28, 28));
-                badge.gameObject.AddComponent<Image>().color = new Color(0.08f, 0.85f, 0.45f, 0.98f);
-                Text badgeTxt = Label(badge, "1", Vector2.zero, new Vector2(28, 28), 16, TextAnchor.MiddleCenter, Color.black, FontStyle.Bold);
-                badge.gameObject.SetActive(false);
-
-                _photoTiles.Add(new PhotoTile { Button = b, Thumb = thumb, Badge = badge.gameObject, BadgeText = badgeTxt });
-            }
-
-            _tabMessageLabel = Label(r, "", new Vector2(286, 198), new Vector2(338, 172), 20, TextAnchor.MiddleCenter, new Color(0.95f, 0.88f, 0.65f), FontStyle.Bold);
-            _tabMessageLabel.gameObject.SetActive(false);
-
-            // Armed / Send button + overall & per-file progress + status + 5-poke version line
-            _sendButton = MakeButton(r, "SEND", new Vector2(286, 384), new Vector2(338, 84), new Color(0.1f, 0.6f, 0.3f), 36, Send);
+            _sendButton = MakeButton(r, "Send", new Vector2(20, 474), new Vector2(210, 48), GalleryAccent, 24, Send);
             _sendLabel = _sendButton.GetComponentInChildren<Text>();
+            _sendLabel.color = GalleryInk;
+            _sendLabel.resizeTextForBestFit = true;
+            _sendLabel.resizeTextMinSize = 15;
+            _sendLabel.resizeTextMaxSize = 24;
+            _sendLabel.rectTransform.offsetMin = new Vector2(8, 0);
+            _sendLabel.rectTransform.offsetMax = new Vector2(-8, 0);
 
-            RectTransform bar = Rect("ProgressBack", r, new Vector2(286, 474), new Vector2(338, 12));
-            bar.gameObject.AddComponent<Image>().color = new Color(0.15f, 0.15f, 0.18f);
+            RectTransform bar = Rect("ProgressBack", r, new Vector2(20, 526), new Vector2(210, 5));
+            bar.gameObject.AddComponent<Image>().color = GalleryTile;
             _sendFill = Rect("ProgressFill", bar, Vector2.zero, Vector2.zero);
-            _sendFill.gameObject.AddComponent<Image>().color = new Color(0.2f, 0.85f, 1f);
+            _sendFill.gameObject.AddComponent<Image>().color = GalleryAccent;
             SetFill(_sendFill, 0f);
 
-            RectTransform fileBar = Rect("FileProgressBack", r, new Vector2(286, 490), new Vector2(338, 8));
-            fileBar.gameObject.AddComponent<Image>().color = new Color(0.12f, 0.12f, 0.15f);
+            RectTransform fileBar = Rect("FileProgressBack", r, new Vector2(20, 533), new Vector2(210, 3));
+            fileBar.gameObject.AddComponent<Image>().color = GalleryTile;
             _sendFileFill = Rect("FileProgressFill", fileBar, Vector2.zero, Vector2.zero);
-            _sendFileFill.gameObject.AddComponent<Image>().color = new Color(0.4f, 1f, 0.6f);
+            _sendFileFill.gameObject.AddComponent<Image>().color = new Color(0.2f, 0.85f, 1f);
             SetFill(_sendFileFill, 0f);
 
-            _sendStatus = Label(r, "Pick photos and a friend, then bump (or press SEND).", new Vector2(20, 538), new Vector2(860, 28), 21, TextAnchor.MiddleLeft, Color.white);
+            _sendStatus = Label(r, "Select photos and a friend, then bump or press Send.", new Vector2(20, 538), new Vector2(860, 28), 21, TextAnchor.MiddleLeft, Color.white);
+            _sendStatus.supportRichText = false;
             Button verBtn = MakeButton(r, $"v{Application.version} — Photos stay on your devices. Sent over local Wi-Fi only after the receiver accepts.",
                 new Vector2(20, 566), new Vector2(860, 28), new Color(0f, 0f, 0f, 0.01f), 16, PokeVersionText);
             _aboutText = verBtn.GetComponentInChildren<Text>();
             _aboutText.alignment = TextAnchor.MiddleLeft;
             _aboutText.fontStyle = FontStyle.Normal;
             _aboutText.color = new Color(0.72f, 0.78f, 0.88f);
-
-            // Column C: Recent Moments preview (last 12 received; poke to enlarge + add to selection)
-            Label(r, "Moments", new Vector2(640, 118), new Vector2(240, 36), 28, TextAnchor.MiddleLeft, Color.white, FontStyle.Bold);
-            RectTransform viewerBg = Rect("ViewerBg", r, new Vector2(640, 156), new Vector2(240, 150));
-            viewerBg.gameObject.AddComponent<Image>().color = new Color(0.1f, 0.1f, 0.12f);
-            _viewer = new GameObject("Viewer", typeof(RectTransform), typeof(RawImage)).GetComponent<RawImage>();
-            _viewer.transform.SetParent(viewerBg, false);
-            var vr = (RectTransform)_viewer.transform;
-            vr.anchorMin = Vector2.zero; vr.anchorMax = Vector2.one; vr.offsetMin = new Vector2(4, 4); vr.offsetMax = new Vector2(-4, -4);
-            _viewer.color = new Color(1, 1, 1, 0);
-            _viewerCaption = Label(r, "Poke a moment to enlarge", new Vector2(640, 310), new Vector2(240, 26), 18, TextAnchor.MiddleLeft, new Color(0.8f, 0.8f, 0.85f));
-            _momentsRoot = Rect("Moments", r, new Vector2(640, 340), new Vector2(240, 180));
-
-            LoadExistingReceived();
-
-            // Enlarged Moment modal
-            RectTransform enl = Rect("MomentEnlarged", r, new Vector2(150, 114), new Vector2(600, 430));
-            enl.gameObject.AddComponent<Image>().color = new Color(0.04f, 0.05f, 0.09f, 0.98f);
-            _enlargeViewer = new GameObject("EnlargeImage", typeof(RectTransform), typeof(RawImage)).GetComponent<RawImage>();
-            _enlargeViewer.transform.SetParent(enl, false);
-            var er = (RectTransform)_enlargeViewer.transform;
-            er.anchorMin = er.anchorMax = er.pivot = new Vector2(0, 1);
-            er.anchoredPosition = new Vector2(16, -12);
-            er.sizeDelta = new Vector2(568, 344);
-            _enlargeViewer.raycastTarget = false;
-            _enlargeCaption = Label(enl, "", new Vector2(16, 366), new Vector2(400, 52), 22, TextAnchor.MiddleLeft, Color.white, FontStyle.Bold);
-            MakeButton(enl, "Close", new Vector2(434, 364), new Vector2(150, 54), new Color(0.25f, 0.5f, 0.8f), 26, () => _enlargePanel.SetActive(false));
-            _enlargePanel = enl.gameObject;
-            _enlargePanel.SetActive(false);
 
             // Dev overlay: 3 existing +/- controls + Reset/Print/Sim bump + Save clip FALSE/TRUE + path line
             RectTransform dev = Rect("DevOverlay", r, new Vector2(280, 112), new Vector2(600, 452));
@@ -1141,6 +1108,109 @@ namespace BumpXR.UI
             UpdateTuneLabels();
             _devPanel = dev.gameObject;
             _devPanel.SetActive(false);
+
+            BuildPhotoPreview();
+        }
+
+        private void BuildGallery(RectTransform parent)
+        {
+            _galleryCornerSprite = CreateGalleryCornerSprite();
+            RectTransform gallery = Rect("PhotoGallery", parent, new Vector2(248, 114), new Vector2(632, 424));
+            Image background = gallery.gameObject.AddComponent<Image>();
+            background.color = GallerySurface;
+            background.raycastTarget = false;
+            RoundGalleryImage(background);
+
+            _tabCapturesBtn = MakeButton(gallery, "My Captures", new Vector2(16, 14), new Vector2(166, 44), GalleryAccent, 22, () => OpenTab(MediaTab.Captures));
+            _tabMomentsBtn = MakeButton(gallery, "Moments", new Vector2(190, 14), new Vector2(134, 44), GalleryControl, 22, () => OpenTab(MediaTab.Moments));
+            _refreshCapturesBtn = MakeButton(gallery, "Refresh", new Vector2(506, 14), new Vector2(110, 44), GalleryControl, 20,
+                () => _ = RefreshCapturesAsync(requestPermission: false));
+
+            for (int slot = 0; slot < GridPageSize; slot++)
+            {
+                int index = slot;
+                var position = new Vector2(16 + (index % 3) * 204, 70 + (index / 3) * 144);
+                Button button = MakeButton(gallery, "", position, new Vector2(192, 134), GalleryTile, 20, () => TogglePhotoSlot(index));
+                RectTransform thumbRect = Rect("Thumbnail", button.transform, new Vector2(4, 4), new Vector2(184, 90));
+                RawImage thumb = thumbRect.gameObject.AddComponent<RawImage>();
+                thumb.raycastTarget = false;
+                Text placeholder = Label(thumbRect, "", Vector2.zero, new Vector2(184, 90), 18, TextAnchor.MiddleCenter, GalleryMuted);
+
+                RectTransform badge = Rect("SelectionOrder", button.transform, new Vector2(150, 9), new Vector2(32, 32));
+                Image badgeImage = badge.gameObject.AddComponent<Image>();
+                badgeImage.color = GalleryAccent;
+                badgeImage.raycastTarget = false;
+                RoundGalleryImage(badgeImage);
+                Text badgeText = Label(badge, "", Vector2.zero, new Vector2(32, 32), 19, TextAnchor.MiddleCenter, GalleryInk, FontStyle.Bold);
+                badge.gameObject.SetActive(false);
+
+                Text name = Label(button.transform, "", new Vector2(8, 94), new Vector2(110, 40), 18, TextAnchor.MiddleLeft, Color.white);
+                name.supportRichText = false;
+                name.horizontalOverflow = HorizontalWrapMode.Overflow;
+                MakeButton(button.transform, "View", new Vector2(122, 96), new Vector2(66, 34), GalleryControl, 18, () =>
+                {
+                    if (_photoTiles[index].Item is MediaItem item) _ = PreviewPhotoAsync(item, _activeMedia);
+                });
+
+                _photoTiles.Add(new PhotoTile { Button = button, Thumb = thumb, Name = name, Placeholder = placeholder, Badge = badge.gameObject, BadgeText = badgeText });
+            }
+
+            _tabMessageLabel = Label(gallery, "", new Vector2(70, 126), new Vector2(492, 86), 24, TextAnchor.MiddleCenter, GalleryMuted);
+            _galleryActionBtn = MakeButton(gallery, "Allow access", new Vector2(214, 230), new Vector2(204, 48), GalleryAccent, 22,
+                () => _ = RefreshCapturesAsync(requestPermission: true));
+            _galleryActionBtn.GetComponentInChildren<Text>().color = GalleryInk;
+
+            _countBadgeLabel = Label(gallery, "", new Vector2(16, 366), new Vector2(155, 44), 21, TextAnchor.MiddleLeft, Color.white, FontStyle.Bold);
+            _clearSelectionBtn = MakeButton(gallery, "Clear", new Vector2(174, 366), new Vector2(80, 44), GalleryControl, 20, ClearSelection);
+            _prevPageBtn = MakeButton(gallery, "Back", new Vector2(354, 366), new Vector2(80, 44), GalleryControl, 20, () => ChangePage(-1));
+            _pageLabel = Label(gallery, "", new Vector2(442, 366), new Vector2(84, 44), 20, TextAnchor.MiddleCenter, GalleryMuted);
+            _nextPageBtn = MakeButton(gallery, "Next", new Vector2(536, 366), new Vector2(80, 44), GalleryControl, 20, () => ChangePage(1));
+
+            foreach (Button button in gallery.GetComponentsInChildren<Button>(true))
+                RoundGalleryImage(button.image);
+        }
+
+        private static Sprite CreateGalleryCornerSprite()
+        {
+            const int size = 20;
+            const float radius = 8f;
+            var pixels = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = Mathf.Max(0f, Mathf.Abs(x + 0.5f - size / 2f) - (size / 2f - radius));
+                    float dy = Mathf.Max(0f, Mathf.Abs(y + 0.5f - size / 2f) - (size / 2f - radius));
+                    byte alpha = (byte)(255f * Mathf.Clamp01(radius + 0.5f - Mathf.Sqrt(dx * dx + dy * dy)));
+                    pixels[y * size + x] = new Color32(255, 255, 255, alpha);
+                }
+            }
+
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+            texture.SetPixels32(pixels);
+            texture.Apply(false, true);
+            return Sprite.Create(texture, new UnityEngine.Rect(0, 0, size, size), new Vector2(0.5f, 0.5f),
+                100f, 0, SpriteMeshType.FullRect, Vector4.one * radius);
+        }
+
+        private void RoundGalleryImage(Image image)
+        {
+            image.sprite = _galleryCornerSprite;
+            image.type = Image.Type.Sliced;
+        }
+
+        private void BuildPhotoPreview()
+        {
+            RectTransform panel = Rect("PhotoPreview", shareRoot, Vector2.zero, shareRoot.rect.size);
+            panel.gameObject.AddComponent<Image>().color = new Color32(13, 17, 30, 255);
+            _enlargeCaption = Label(panel, "", new Vector2(28, 16), new Vector2(720, 56), 24, TextAnchor.MiddleLeft, Color.white, FontStyle.Bold);
+            _enlargeCaption.supportRichText = false;
+            MakeButton(panel, "Close", new Vector2(756, 16), new Vector2(116, 56), GalleryControl, 23, ClosePreview);
+            RectTransform image = Rect("Preview", panel, new Vector2(28, 88), new Vector2(844, 484));
+            _enlargeViewer = image.gameObject.AddComponent<RawImage>();
+            _enlargeViewer.raycastTarget = false;
+            _enlargePanel = panel.gameObject;
+            _enlargePanel.SetActive(false);
         }
 
         private void BuildIncomingUi()
@@ -1169,82 +1239,170 @@ namespace BumpXR.UI
         private void RefreshPhotoGrid()
         {
             _gridDirty = false;
-            IReadOnlyList<MediaItem> items = _activeMedia?.Items ?? Array.Empty<MediaItem>();
+            IReadOnlyList<MediaItem> items = _activeMedia.Items;
+            bool captures = _activeTab == MediaTab.Captures;
+            CapturesState state = _capturesMedia.State;
+            bool busy = captures && (state == CapturesState.RequestingPermission || state == CapturesState.Loading);
+            bool needsAccess = captures && (state == CapturesState.NeedsPermission || state == CapturesState.Denied);
             int maxPage = Mathf.Max(0, (items.Count - 1) / GridPageSize);
             _gridPage = Mathf.Clamp(_gridPage, 0, maxPage);
+            bool hasPhotos = items.Count > 0;
+            _prevPageBtn.gameObject.SetActive(hasPhotos);
+            _nextPageBtn.gameObject.SetActive(hasPhotos);
             _prevPageBtn.interactable = _gridPage > 0;
             _nextPageBtn.interactable = _gridPage < maxPage;
+            _pageLabel.text = hasPhotos ? $"{_gridPage + 1} / {maxPage + 1}" : "";
+            _refreshCapturesBtn.gameObject.SetActive(captures && !needsAccess);
+            _refreshCapturesBtn.interactable = !busy;
+            _galleryActionBtn.gameObject.SetActive(needsAccess);
+            _galleryActionBtn.GetComponentInChildren<Text>().text =
+                state == CapturesState.Denied ? "Try again" : "Allow access";
 
-            string emptyOrErrorMsg = null;
-            if (_activeTab == MediaTab.Captures && !string.IsNullOrEmpty(_capturesMedia.StatusMessage))
-                emptyOrErrorMsg = _capturesMedia.StatusMessage;
-            else if (_activeTab == MediaTab.Moments && items.Count == 0)
-                emptyOrErrorMsg = "No received Moments yet — bump with Demo Friend or another headset first.";
-
-            _tabMessageLabel.gameObject.SetActive(!string.IsNullOrEmpty(emptyOrErrorMsg) && items.Count == 0);
-            if (_tabMessageLabel.gameObject.activeSelf) _tabMessageLabel.text = emptyOrErrorMsg;
+            _tabMessageLabel.gameObject.SetActive(!hasPhotos);
+            _tabMessageLabel.text = captures
+                ? _capturesMedia.StatusMessage
+                : "Photos you receive from a bump will appear here.";
 
             for (int slot = 0; slot < GridPageSize; slot++)
             {
                 PhotoTile tile = _photoTiles[slot];
-                int idx = _gridPage * GridPageSize + slot;
-                if (idx >= items.Count)
-                {
-                    tile.Item = null;
-                    tile.Button.gameObject.SetActive(false);
-                    continue;
-                }
-
-                MediaItem item = items[idx];
+                int index = _gridPage * GridPageSize + slot;
+                MediaItem item = index < items.Count ? items[index] : null;
                 tile.Item = item;
-                tile.Button.gameObject.SetActive(true);
-                if (_thumbCache.TryGetValue(item.Id, out Texture2D cached) && cached != null)
-                {
-                    tile.Thumb.texture = cached;
-                    tile.Thumb.color = Color.white;
-                }
+                tile.Button.gameObject.SetActive(item != null);
+                tile.Thumb.texture = null;
+                if (item == null) continue;
+
+                tile.Name.text = FitFileName(tile.Name, item.FileName);
+                if (_thumbCache.TryGetValue(item.Id, out Texture2D cached))
+                    ShowThumbnail(tile, cached);
                 else
                 {
-                    tile.Thumb.texture = null;
-                    tile.Thumb.color = new Color(0.18f, 0.20f, 0.25f, 1f);
-                    LoadTileThumbnailAsync(item, _activeMedia);
+                    tile.Thumb.color = GallerySurface;
+                    tile.Placeholder.text = "Loading...";
+                    _ = LoadTileThumbnailAsync(item, _activeMedia);
                 }
+            }
+
+            // Bound the texture cache to one visible page, including received full-size JPEGs/PNGs.
+            foreach (string id in _thumbCache.Keys.Where(id => !_photoTiles.Any(tile => tile.Item?.Id == id)).ToArray())
+            {
+                Destroy(_thumbCache[id]);
+                _thumbCache.Remove(id);
             }
         }
 
-        private async void LoadTileThumbnailAsync(MediaItem item, IMediaSource source)
+        private async Task LoadTileThumbnailAsync(MediaItem item, IMediaSource source)
         {
-            if (item == null || source == null || !_thumbLoading.Add(item.Id)) return;
+            var key = (source, item.Id);
+            if (!_thumbLoading.Add(key)) return;
             try
             {
                 byte[] bytes = await source.ReadThumbnailBytesAsync(item);
-                if (this == null || bytes == null || bytes.Length == 0) return;
-                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                if (ImageConversion.LoadImage(tex, bytes))
-                {
-                    _thumbCache[item.Id] = tex;
-                    for (int i = 0; i < _photoTiles.Count; i++)
-                    {
-                        if (_photoTiles[i].Item != null && _photoTiles[i].Item.Id == item.Id)
-                        {
-                            _photoTiles[i].Thumb.texture = tex;
-                            _photoTiles[i].Thumb.color = Color.white;
-                        }
-                    }
-                }
-                else
-                {
-                    Destroy(tex);
-                }
+                if (this == null || source != _activeMedia) return;
+                PhotoTile tile = _photoTiles.Find(photo => photo.Item?.Id == item.Id);
+                if (tile == null) return;
+                Texture2D texture = DecodePhoto(bytes);
+                if (texture != null) _thumbCache[item.Id] = texture;
+                ShowThumbnail(tile, texture);
             }
             catch (Exception e)
             {
-                Debug.LogWarning("[BumpXR] Thumbnail decode failed: " + e.Message);
+                Debug.LogWarning("[BumpXR] Thumbnail load failed: " + e.Message);
+                if (this != null && source == _activeMedia)
+                {
+                    PhotoTile tile = _photoTiles.Find(photo => photo.Item?.Id == item.Id);
+                    if (tile != null) ShowThumbnail(tile, null);
+                }
             }
             finally
             {
-                _thumbLoading.Remove(item.Id);
+                _thumbLoading.Remove(key);
             }
+        }
+
+        private static void ShowThumbnail(PhotoTile tile, Texture2D texture)
+        {
+            tile.Thumb.texture = texture;
+            tile.Thumb.color = texture != null ? Color.white : GallerySurface;
+            tile.Thumb.uvRect = new UnityEngine.Rect(0, 0, 1, 1);
+            tile.Placeholder.text = texture != null ? "" : "No preview";
+
+            if (texture == null) return;
+            float imageAspect = (float)texture.width / texture.height;
+            float tileAspect = 184f / 90f;
+            float width = Mathf.Min(1f, tileAspect / imageAspect);
+            float height = Mathf.Min(1f, imageAspect / tileAspect);
+            tile.Thumb.uvRect = new UnityEngine.Rect((1f - width) / 2f, (1f - height) / 2f, width, height);
+        }
+
+        private static string FitFileName(Text label, string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName)) return "Photo";
+            var generator = label.cachedTextGeneratorForLayout;
+            var settings = label.GetGenerationSettings(Vector2.zero);
+            float maxWidth = label.rectTransform.rect.width * label.pixelsPerUnit;
+            if (generator.GetPreferredWidth(fileName, settings) <= maxWidth) return fileName;
+
+            string shortened = fileName.Substring(0, Mathf.Min(14, fileName.Length));
+            while (shortened.Length > 0 && generator.GetPreferredWidth(shortened + "...", settings) > maxWidth)
+                shortened = shortened.Substring(0, shortened.Length - 1);
+            return shortened + "...";
+        }
+
+        private static Texture2D DecodePhoto(byte[] bytes)
+        {
+            if (bytes == null || bytes.Length == 0) return null;
+            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (ImageConversion.LoadImage(texture, bytes, markNonReadable: true)) return texture;
+            Destroy(texture);
+            return null;
+        }
+
+        private async Task PreviewPhotoAsync(MediaItem item, IMediaSource source)
+        {
+            int version = ++_previewVersion;
+            _enlargeCaption.text = "Loading photo...";
+            _enlargeViewer.color = Color.clear;
+            _enlargePanel.SetActive(true);
+            _shareContent.blocksRaycasts = false;
+            try
+            {
+                byte[] bytes = source is CapturesMediaSource captures
+                    ? await captures.ReadPreviewBytesAsync(item, 1024)
+                    : await source.ReadThumbnailBytesAsync(item);
+                if (this == null || version != _previewVersion) return;
+
+                _previewTexture = DecodePhoto(bytes);
+                if (_previewTexture == null)
+                {
+                    _enlargeCaption.text = "This photo couldn't be opened.";
+                    return;
+                }
+
+                float scale = Mathf.Min(844f / _previewTexture.width, 484f / _previewTexture.height);
+                Vector2 size = new Vector2(_previewTexture.width * scale, _previewTexture.height * scale);
+                _enlargeViewer.rectTransform.sizeDelta = size;
+                _enlargeViewer.rectTransform.anchoredPosition = new Vector2((900f - size.x) / 2f, -88f - (484f - size.y) / 2f);
+                _enlargeViewer.texture = _previewTexture;
+                _enlargeViewer.color = Color.white;
+                _enlargeCaption.text = item.FileName;
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[BumpXR] Photo preview failed: " + e.Message);
+                if (this != null && version == _previewVersion) _enlargeCaption.text = "This photo couldn't be opened.";
+            }
+        }
+
+        private void ClosePreview()
+        {
+            _previewVersion++;
+            _enlargePanel.SetActive(false);
+            _shareContent.blocksRaycasts = true;
+            _enlargeViewer.texture = null;
+            if (_previewTexture != null) Destroy(_previewTexture);
+            _previewTexture = null;
         }
 
         private void RefreshPeers()
@@ -1259,84 +1417,20 @@ namespace BumpXR.UI
                 PeerInfo p = _peers[i];
                 int index = i;
                 bool sel = p == _selectedPeer;
-                Button b = MakeButton(_peerListRoot, p.DisplayName, new Vector2(0, i * 62), new Vector2(250, 56),
-                    sel ? new Color(0.2f, 0.85f, 1f) : new Color(0.25f, 0.25f, 0.3f), 24, () => SelectPeerByIndex(index));
+                Button b = MakeButton(_peerListRoot, p.DisplayName, new Vector2(0, i * 50), new Vector2(210, 44),
+                    sel ? GalleryAccent : GalleryControl, 21, () => SelectPeerByIndex(index));
                 if (sel) b.GetComponentInChildren<Text>().color = Color.black;
                 _peerButtons.Add(b);
             }
 
             if (_peers.Count == 0)
             {
-                var hint = Label(_peerListRoot, "Searching... (Demo Friend appears in 10s)", Vector2.zero, new Vector2(250, 120), 20, TextAnchor.UpperLeft, new Color(0.8f, 0.8f, 0.85f));
+                var hint = Label(_peerListRoot, "Looking for nearby headsets...", Vector2.zero, new Vector2(210, 100), 21, TextAnchor.UpperLeft, GalleryMuted);
                 _peerButtons.Add(hint.gameObject.AddComponent<Button>());
             }
         }
 
-        private void RefreshReceived()
-        {
-            _receivedDirty = false;
-            for (int i = _momentsRoot.childCount - 1; i >= 0; i--) Destroy(_momentsRoot.GetChild(i).gameObject);
-            _momentButtons.Clear();
-
-            int shown = Mathf.Min(MaxMoments, _receivedPaths.Count);
-            for (int slot = 0; slot < shown; slot++)
-            {
-                string path = _receivedPaths[_receivedPaths.Count - 1 - slot];
-                var pos = new Vector2((slot % 4) * 60, (slot / 4) * 60);
-                Button b = MakeButton(_momentsRoot, "", pos, new Vector2(56, 56), new Color(0.25f, 0.25f, 0.3f), 14,
-                    () => { SelectReceivedAsSource(path); ShowReceived(path, enlarge: true); });
-                RawImage ri = new GameObject("Thumb", typeof(RectTransform), typeof(RawImage)).GetComponent<RawImage>();
-                ri.transform.SetParent(b.transform, false);
-                var tr = (RectTransform)ri.transform;
-                tr.anchorMin = Vector2.zero; tr.anchorMax = Vector2.one; tr.offsetMin = new Vector2(3, 3); tr.offsetMax = new Vector2(-3, -3);
-                ri.raycastTarget = false;
-                ri.texture = CachedPathThumb(path);
-                _momentButtons.Add(new KeyValuePair<Button, string>(b, path));
-            }
-        }
-
-        private void LoadExistingReceived()
-        {
-            if (!Directory.Exists(_receiveDir)) return;
-            foreach (string f in Directory.GetFiles(_receiveDir).OrderBy(x => File.GetLastWriteTimeUtc(x)).ThenBy(y => y, StringComparer.Ordinal))
-            {
-                string ext = Path.GetExtension(f).ToLowerInvariant();
-                if (ext == ".jpg" || ext == ".jpeg" || ext == ".png") _receivedPaths.Add(f);
-            }
-        }
-
-        private void ShowReceived(string path, bool enlarge = false)
-        {
-            try
-            {
-                Texture2D tex = CachedPathThumb(path);
-                _viewer.texture = tex;
-                _viewer.color = Color.white;
-                _viewerCaption.text = Path.GetFileName(path);
-                if (enlarge && _enlargePanel != null)
-                {
-                    _enlargeViewer.texture = tex;
-                    _enlargeCaption.text = Path.GetFileName(path) + "  (added to selection)";
-                    _enlargePanel.SetActive(true);
-                }
-            }
-            catch (Exception e)
-            {
-                _viewerCaption.text = "Can't open: " + e.Message;
-            }
-        }
-
         // ================= helpers =================
-
-        private Texture2D CachedPathThumb(string path)
-        {
-            string key = "file:" + Path.GetFullPath(path);
-            if (_thumbCache.TryGetValue(key, out Texture2D tex) && tex != null) return tex;
-            tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            try { ImageConversion.LoadImage(tex, File.ReadAllBytes(path)); } catch { }
-            _thumbCache[key] = tex;
-            return tex;
-        }
 
         private static string FormatSize(long bytes) => bytes >= 1024 * 1024 ? $"{bytes / 1048576f:0.0} MB" : $"{Mathf.Max(1, (int)(bytes / 1024))} KB";
 

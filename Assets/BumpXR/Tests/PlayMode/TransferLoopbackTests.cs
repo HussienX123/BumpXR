@@ -174,7 +174,8 @@ namespace BumpXR.Tests
 
                 var ctrl = UnityEngine.Object.FindFirstObjectByType<BumpXR.UI.BumpMainController>();
                 Assert.IsNotNull(ctrl, "BumpMainController not found in BumpMain scene");
-                Assert.AreEqual(6, ctrl.PhotoCount, "Expected 6 sample photos");
+                yield return LoadFakeCaptures(ctrl);
+                Assert.AreEqual(CapturesMediaSource.MaxCaptures, ctrl.PhotoCount);
 
                 int beforeReceived = ctrl.ReceivedCount;
                 ctrl.ToggleDemoFriend();
@@ -503,12 +504,27 @@ namespace BumpXR.Tests
             Assert.AreEqual(Sha(c), Sha(File.ReadAllBytes(savedTask.Result[2])));
         }
 
+        internal static IEnumerator LoadFakeCaptures(BumpMainController ctrl)
+        {
+            ctrl.SetCapturesBackendForTest(new FakeCapturesBackend { Permitted = true });
+            Task load = ctrl.RefreshCapturesAsync(requestPermission: false);
+            while (!load.IsCompleted) yield return null;
+        }
+
         private sealed class FakeCapturesBackend : ICapturesBackend
         {
             public bool Permitted;
             public int TotalAvailable = 65;
-            private readonly byte[] _thumb = FakeJpeg(1024);
-            private readonly byte[] _full = FakeJpeg(16384);
+            private readonly byte[] _photo;
+
+            public FakeCapturesBackend()
+            {
+                var texture = new Texture2D(4, 4, TextureFormat.RGB24, false);
+                texture.SetPixels(Enumerable.Repeat(Color.blue, 16).ToArray());
+                texture.Apply();
+                _photo = texture.EncodeToJPG();
+                UnityEngine.Object.Destroy(texture);
+            }
 
             public bool HasPermission() => Permitted;
             public Task<bool> RequestPermissionAsync() => Task.FromResult(Permitted);
@@ -523,18 +539,18 @@ namespace BumpXR.Tests
                         Id = $"content://media/external/images/media/{1000 - i}",
                         FileName = $"quest_shot_{i:00}.jpg",
                         MimeType = "image/jpeg",
-                        Size = _full.Length
+                        Size = _photo.Length
                     });
                 }
                 return Task.FromResult(list);
             }
 
-            public Task<byte[]> LoadThumbnailBytesAsync(string contentUri, int maxSidePx) => Task.FromResult(_thumb);
-            public byte[] ReadContentStreamBytes(string contentUri, long maxBytes) => _full;
+            public Task<byte[]> LoadThumbnailBytesAsync(string contentUri, int maxSidePx) => Task.FromResult(_photo);
+            public byte[] ReadContentStreamBytes(string contentUri, long maxBytes) => _photo;
         }
 
         [UnityTest]
-        public IEnumerator BumpMain_LazyMyCapturesPermission_MultiSelectCap_AndBatchDemoFriend()
+        public IEnumerator BumpMain_DefaultCaptures_Permission_MultiSelectCap_AndBatchDemoFriend()
         {
             bool prevIgnore = LogAssert.ignoreFailingMessages;
             LogAssert.ignoreFailingMessages = true;
@@ -547,27 +563,33 @@ namespace BumpXR.Tests
                 var ctrl = UnityEngine.Object.FindFirstObjectByType<BumpMainController>();
                 Assert.IsNotNull(ctrl);
 
-                // Inject a denied backend and confirm ZERO permission requests occur before opening "My Captures".
+                // The default Captures gallery explains access before prompting.
                 var deniedBackend = new FakeCapturesBackend { Permitted = false };
                 ctrl.SetCapturesBackendForTest(deniedBackend);
+                Assert.AreEqual(MediaTab.Captures, ctrl.ActiveTab);
+                Task load = ctrl.RefreshCapturesAsync(requestPermission: false);
+                while (!load.IsCompleted) yield return null;
+                Assert.AreEqual(CapturesState.NeedsPermission, ctrl.Captures.State);
+                Assert.AreEqual(0, ctrl.PhotoCount);
                 Assert.AreEqual(0, ctrl.Captures.PermissionRequestCount, "First launch must trigger zero permission requests.");
 
                 ctrl.ToggleDemoFriend();
                 ctrl.SelectPeerByIndex(0);
                 Assert.AreEqual(0, ctrl.Captures.PermissionRequestCount, "Demo Friend path must trigger zero permission requests.");
 
-                // Opening "My Captures" lazily requests permission; when denied, shows one explanatory line and keeps Samples working.
-                Task openDenied = ctrl.OpenTabAsync(MediaTab.Captures);
-                while (!openDenied.IsCompleted) yield return null;
+                // The Allow access button requests permission and the gallery handles denial.
+                var gallery = GameObject.Find("PhotoGallery");
+                yield return null;
+                gallery.GetComponentsInChildren<Button>().Single(b => b.GetComponentInChildren<Text>().text == "Allow access").onClick.Invoke();
                 yield return null;
                 Assert.AreEqual(1, ctrl.Captures.PermissionRequestCount);
                 Assert.AreEqual(CapturesMediaSource.DeniedMessage, ctrl.TabMessageText);
                 Assert.IsFalse(ctrl.TabMessageText.Contains("\n"), "Denied message must be a single explanatory line.");
 
-                Task backToSamples = ctrl.OpenTabAsync(MediaTab.Samples);
-                while (!backToSamples.IsCompleted) yield return null;
-                yield return null;
-                Assert.AreEqual(6, ctrl.PhotoCount, "Samples tab must remain usable after Captures denial.");
+                Task openMoments = ctrl.OpenTabAsync(MediaTab.Moments);
+                while (!openMoments.IsCompleted) yield return null;
+                Assert.AreEqual(MediaTab.Moments, ctrl.ActiveTab);
+                Assert.AreEqual(ctrl.ReceivedCount, ctrl.PhotoCount);
 
                 // Grant permission with 65 items: capped at 60, Select all caps at 10, thumbnails never call full-res ReadBytes.
                 var grantedBackend = new FakeCapturesBackend { Permitted = true, TotalAvailable = 65 };
@@ -575,26 +597,33 @@ namespace BumpXR.Tests
                 Task openGranted = ctrl.OpenTabAsync(MediaTab.Captures);
                 while (!openGranted.IsCompleted) yield return null;
                 yield return null;
-                yield return null;
                 Assert.AreEqual(60, ctrl.PhotoCount, "My Captures must cap at newest 60 images.");
                 Assert.AreEqual(0, ctrl.Captures.FullReadCount, "Browsing thumbnails must never read full-resolution bytes.");
+
+                var view = gallery.GetComponentsInChildren<Button>().First(b => b.GetComponentInChildren<Text>()?.text == "View");
+                view.onClick.Invoke();
+                var preview = GameObject.Find("PhotoPreview");
+                Assert.IsNotNull(preview);
+                yield return null;
+                Assert.IsNotNull(preview.GetComponentInChildren<RawImage>().texture, "View should display a decoded photo.");
+                Assert.AreEqual(0, ctrl.SelectedCount, "Viewing a capture must not select it.");
+                preview.GetComponentInChildren<Button>().onClick.Invoke();
 
                 ctrl.SelectAllPhotos();
                 yield return null;
                 Assert.AreEqual(10, ctrl.SelectedCount, "Multi-select must cap at 10 items.");
-                Assert.AreEqual("10/10", ctrl.CountBadgeText);
+                Assert.AreEqual("10/10 selected", ctrl.CountBadgeText);
                 Assert.AreEqual("10 photos to Demo Friend", ctrl.ArmedText);
 
                 ctrl.ClearSelection();
                 yield return null;
                 Assert.AreEqual(0, ctrl.SelectedCount);
-                Assert.AreEqual("0/10", ctrl.CountBadgeText);
+                Assert.AreEqual("0/10 selected", ctrl.CountBadgeText);
 
-                // Select 2 items in Samples, verify armed state reads "2 photos to Demo Friend", send batch, and verify batch incoming card.
-                Task openSamples2 = ctrl.OpenTabAsync(MediaTab.Samples);
-                while (!openSamples2.IsCompleted) yield return null;
+                // Select one capture on each of two pages and confirm both are sent.
                 ctrl.TogglePhotoSlot(0);
-                ctrl.TogglePhotoSlot(1);
+                ctrl.ChangePage(1);
+                ctrl.TogglePhotoSlot(0);
                 yield return null;
                 Assert.AreEqual("2 photos to Demo Friend", ctrl.ArmedText);
 
@@ -607,13 +636,15 @@ namespace BumpXR.Tests
                 var card = Resources.FindObjectsOfTypeAll<RectTransform>().First(r => r.name == "IncomingCard" && r.gameObject.scene.IsValid());
                 Assert.AreEqual(0, card.GetComponentsInChildren<RawImage>(true).Length, "Incoming card must have NO image preview before Accept.");
                 StringAssert.Contains("Demo Friend wants to send", ctrl.IncomingSummaryText);
+                StringAssert.Contains("quest_shot_00.jpg", ctrl.IncomingNamesText);
+                StringAssert.Contains("quest_shot_06.jpg", ctrl.IncomingNamesText);
+                Assert.AreEqual(2, ctrl.Captures.FullReadCount, "Demo Friend should reuse the sent captures.");
 
                 ctrl.AcceptIncoming();
                 deadline = DateTime.UtcNow.AddSeconds(12);
                 while (ctrl.IncomingVisible && DateTime.UtcNow < deadline) yield return null;
                 int gained = ctrl.ReceivedCount - beforeReceived;
-                Assert.GreaterOrEqual(gained, 2, "Demo Friend multi-photo reply should send 2-3 photos.");
-                Assert.LessOrEqual(gained, 3);
+                Assert.AreEqual(2, gained, "Demo Friend should return both selected captures.");
             }
             finally
             {

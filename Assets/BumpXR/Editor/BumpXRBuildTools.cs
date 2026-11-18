@@ -207,6 +207,15 @@ namespace BumpXR.EditorTools
             Debug.Log($"[BumpXR] Phase5ASetup done: v={PlayerSettings.bundleVersion} ({PlayerSettings.Android.bundleVersionCode}), scene={config.sceneSupport}, sharedAnchor={config.sharedAnchorSupport}");
         }
 
+        [MenuItem("BumpXR/Set Version 0.1.3")]
+        public static void SetVersion013()
+        {
+            PlayerSettings.bundleVersion = "0.1.3";
+            PlayerSettings.Android.bundleVersionCode = 4;
+            AssetDatabase.SaveAssets();
+            Debug.Log($"[BumpXR] SetVersion013 done: v={PlayerSettings.bundleVersion} ({PlayerSettings.Android.bundleVersionCode})");
+        }
+
         /// <summary>Generate a 512x512 procedural PNG app icon (cyan bump ring + stylized fist glyph) and assign in PlayerSettings.</summary>
         public static void GenerateAppIcon()
         {
@@ -305,45 +314,6 @@ namespace BumpXR.EditorTools
         private const string RayTemplateGuid = "8369d93f7b6b99742bbea0649a41b7b1";  // Template_RayInteraction (ISDK quick action)
         private const string MainScenePath = "Assets/BumpXR/Scenes/BumpMain.unity";
         private const string DiscoveryScenePath = "Assets/BumpXR/Scenes/DiscoveryTest.unity";
-
-        /// <summary>Generate 6 small sample images as raw JPEG/PNG bytes (TextAssets) in Resources/SamplePhotos.</summary>
-        public static void GenerateSamplePhotos()
-        {
-            const string dir = "Assets/BumpXR/Resources/SamplePhotos";
-            System.IO.Directory.CreateDirectory(dir);
-            var specs = new (string name, Color top, Color bottom, bool png)[]
-            {
-                ("sunset.jpg", new Color(1f, 0.55f, 0.2f), new Color(0.55f, 0.1f, 0.4f), false),
-                ("ocean.png", new Color(0.2f, 0.8f, 1f), new Color(0.05f, 0.2f, 0.6f), true),
-                ("forest.jpg", new Color(0.6f, 0.9f, 0.4f), new Color(0.05f, 0.35f, 0.15f), false),
-                ("violet.png", new Color(0.85f, 0.6f, 1f), new Color(0.3f, 0.1f, 0.6f), true),
-                ("citrus.jpg", new Color(1f, 0.95f, 0.3f), new Color(1f, 0.5f, 0.1f), false),
-                ("night.png", new Color(0.15f, 0.15f, 0.35f), new Color(0.02f, 0.02f, 0.08f), true),
-            };
-
-            for (int s = 0; s < specs.Length; s++)
-            {
-                const int w = 320, h = 240;
-                var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
-                var cx = w * (0.25f + 0.1f * s);
-                var cy = h * 0.6f;
-                for (int y = 0; y < h; y++)
-                    for (int x = 0; x < w; x++)
-                    {
-                        Color c = Color.Lerp(specs[s].bottom, specs[s].top, y / (float)h);
-                        float d = Mathf.Sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
-                        if (d < 48f) c = Color.Lerp(Color.white, c, Mathf.SmoothStep(0f, 1f, Mathf.Max(0f, (d - 30f) / 18f)));
-                        tex.SetPixel(x, y, c);
-                    }
-                tex.Apply();
-                byte[] bytes = specs[s].png ? tex.EncodeToPNG() : tex.EncodeToJPG(85);
-                UnityEngine.Object.DestroyImmediate(tex);
-                System.IO.File.WriteAllBytes($"{dir}/{specs[s].name}.bytes", bytes);
-            }
-
-            AssetDatabase.Refresh();
-            Debug.Log("[BumpXR] Sample photos generated: " + specs.Length);
-        }
 
         /// <summary>Create Assets/BumpXR/Scenes/BumpMain.unity with the hands-first interaction rig and two poke/ray canvases.</summary>
         public static void BuildBumpMain()

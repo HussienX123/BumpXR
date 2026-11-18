@@ -1,7 +1,7 @@
 {
   "Assets/BumpXR/Editor/BumpXRBuildTools.cs": {
-    "mtime": 1794113244.15432,
-    "seen": 1794113283.024906,
+    "mtime": 1795026179.0342722,
+    "seen": 1795026543.416112,
     "ast_hash": "18ea4e639248abbf86e74756dc6ac1ef",
     "semantic_hash": ""
   },
@@ -18,9 +18,9 @@
     "semantic_hash": "205f94b379b60960c81cd6dc8b412511"
   },
   "Assets/BumpXR/Scripts/Core/IMediaSource.cs": {
-    "mtime": 1794112136.5055287,
-    "seen": 1794113283.024906,
-    "ast_hash": "c85eddf16f9840d2fda578aaf9effa8b",
+    "mtime": 1795026451.501995,
+    "seen": 1795026543.416112,
+    "ast_hash": "2e34bc7dbbf8e72bd3338cc7ba9bbe69",
     "semantic_hash": ""
   },
   "Assets/BumpXR/Scripts/Core/ITransferService.cs": {
@@ -36,9 +36,9 @@
     "semantic_hash": "30204767de545fdd996b335dbc943ff3"
   },
   "Assets/BumpXR/Scripts/Discovery/DemoFriendService.cs": {
-    "mtime": 1794112136.6423874,
-    "seen": 1794113283.024906,
-    "ast_hash": "6d4d578d473bc9ea9f055e8f61d1db58",
+    "mtime": 1795026451.501995,
+    "seen": 1795026543.416112,
+    "ast_hash": "2a7ff689223c88fe8f30ff99deafc46e",
     "semantic_hash": ""
   },
   "Assets/BumpXR/Scripts/Discovery/MetaDiscoveryService.cs": {
@@ -102,27 +102,27 @@
     "semantic_hash": ""
   },
   "Assets/BumpXR/Scripts/Core/BumpDetectorCore.cs": {
-    "mtime": 1794112136.4639754,
-    "seen": 1794113283.024906,
-    "ast_hash": "ed7644137033e8aff0103cb2eee886a0",
+    "mtime": 1794258995.3426526,
+    "seen": 1795026543.416112,
+    "ast_hash": "b9fde166ac66655f6ec119c88d0ac29f",
     "semantic_hash": ""
   },
   "Assets/BumpXR/Scripts/Core/BumpSettings.cs": {
-    "mtime": 1794137263.9139414,
-    "seen": 1794137454.8633866,
+    "mtime": 1794152532.8927531,
+    "seen": 1795026543.416112,
     "ast_hash": "2bc87210da22b775b72c0a9755960c06",
     "semantic_hash": ""
   },
   "Assets/BumpXR/Scripts/Core/IBumpDetector.cs": {
-    "mtime": 1794062996.1976328,
-    "seen": 1794065986.882592,
-    "ast_hash": "5c2dbd85ff717e0a1be77e398b667597",
+    "mtime": 1794152999.7833073,
+    "seen": 1795026543.416112,
+    "ast_hash": "f66dc8be12e2239e969f9370b6ee4681",
     "semantic_hash": ""
   },
   "Assets/BumpXR/Scripts/Gestures/HandBumpDetector.cs": {
-    "mtime": 1794112136.770298,
-    "seen": 1794113283.024906,
-    "ast_hash": "d88cc2a6fc124c94a22276a08b3440e1",
+    "mtime": 1794153011.2495883,
+    "seen": 1795026543.416112,
+    "ast_hash": "4c87fe1a6d9fb45d3b502709a0ddc47e",
     "semantic_hash": ""
   },
   "Assets/BumpXR/Scripts/UI/BumpFeedback.cs": {
@@ -138,15 +138,15 @@
     "semantic_hash": ""
   },
   "Assets/BumpXR/Tests/PlayMode/BumpGestureTests.cs": {
-    "mtime": 1794137305.7642941,
-    "seen": 1794137454.8633866,
+    "mtime": 1794152533.0444875,
+    "seen": 1795026543.416112,
     "ast_hash": "d6ffecff46aa2d2da22b0900f9e74f91",
     "semantic_hash": ""
   },
   "Assets/BumpXR/Scripts/Discovery/CapturesMediaSource.cs": {
-    "mtime": 1794089738.0669212,
-    "seen": 1794113283.024906,
-    "ast_hash": "86eeefcaa8e629232bbfe586dcc84c7e",
+    "mtime": 1795026451.500986,
+    "seen": 1795026543.416112,
+    "ast_hash": "65bcbc83b328cab06d19e1c147a845d4",
     "semantic_hash": ""
   },
   "Assets/BumpXR/Scripts/Discovery/MomentsMediaSource.cs": {
@@ -154,5 +154,37 @@
     "seen": 1794113283.024906,
     "ast_hash": "6275807b3a74f8f908f7233f82e6398b",
     "semantic_hash": ""
+  },
+  "Assets/BumpXR/Scripts/BumpXR.Runtime.asmdef": {
+    "mtime": 1794062693.8334053,
+    "seen": 1795026543.416112,
+    "ast_hash": "7e22609067136e5dc8abfd7a994aaece",
+    "semantic_hash": "",
+    "language": "language=.json"
+  },
+  "Assets/BumpXR/Scripts/Core/BuddyProfile.cs": {
+    "mtime": 1794153342.160435,
+    "seen": 1795026543.416112,
+    "ast_hash": "51d480a93989527a31b808a81aa08418",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Scripts/Core/FistTargeting.cs": {
+    "mtime": 1794259022.8890643,
+    "seen": 1795026543.416112,
+    "ast_hash": "672f86cd7ab7d61cd819397db316a262",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Scripts/UI/ProcMesh.cs": {
+    "mtime": 1794153342.374939,
+    "seen": 1795026543.416112,
+    "ast_hash": "f11c77b031b5a7f1bf7d8650d692019d",
+    "semantic_hash": ""
+  },
+  "Assets/BumpXR/Tests/PlayMode/BumpXR.Tests.PlayMode.asmdef": {
+    "mtime": 1794002539.2129633,
+    "seen": 1795026543.416112,
+    "ast_hash": "4c5e040dfec8e0eddfad74d6cfe8dc3a",
+    "semantic_hash": "",
+    "language": "language=.json"
   }
 }
